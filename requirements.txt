@@ -1,4 +1,5 @@
-flask
+Flask
 flask-cors
-werkzeug
-jwt
+PyMySQL
+Werkzeug
+PyJWT
