@@ -12,15 +12,17 @@ app = Flask(__name__)
 # -----------------------
 # Config
 # -----------------------
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": os.environ.get("FRONTEND_URL", "*")}})
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
 SECRET_KEY = os.environ.get("SECRET_KEY", "supersecretkey")
-DB = "penuaura.db"
+DB = os.environ.get("DB_PATH", "penuaura.db")
+
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": FRONTEND_URL}})
 
 # -----------------------
 # Database Helper
 # -----------------------
 def get_db():
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(DB, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -138,7 +140,11 @@ def login():
     conn.close()
 
     if user and check_password_hash(user["password"], password):
-        token = jwt.encode({"user_id": user["id"], "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7)}, SECRET_KEY, algorithm="HS256")
+        token = jwt.encode(
+            {"user_id": user["id"], "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7)},
+            SECRET_KEY,
+            algorithm="HS256"
+        )
         user_dict = dict(user)
         user_dict.pop("password")
         return jsonify({"message": "Login successful", "token": token, "user": user_dict}), 200
@@ -184,12 +190,11 @@ def get_posts():
     conn.close()
     return jsonify(posts)
 
-# Add token_required decorator to other routes similarly...
-# For brevity, update_post, delete_post, settings, rating routes should also use JWT
+# -----------------------
+# Init DB
+# -----------------------
+init_db()
 
 # -----------------------
-# Run Server
+# Vercel requires exposing 'app' without app.run()
 # -----------------------
-if __name__ == "__main__":
-    init_db()
-    app.run(debug=True)
