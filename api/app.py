@@ -1,11 +1,11 @@
 from flask import Flask, request, jsonify
-import sqlite3
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from functools import wraps
 import datetime
 import os
+import pymysql  # Use PyMySQL for MySQL connection
 
 app = Flask(__name__)
 
@@ -14,7 +14,11 @@ app = Flask(__name__)
 # -----------------------
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
 SECRET_KEY = os.environ.get("SECRET_KEY", "supersecretkey")
-DB = os.environ.get("DB_PATH", "penuaura.db")
+
+MYSQL_HOST = os.environ.get("MYSQL_HOST")
+MYSQL_USER = os.environ.get("MYSQL_USER")
+MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD")
+MYSQL_DB = os.environ.get("MYSQL_DB")
 
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": FRONTEND_URL}})
 
@@ -22,62 +26,14 @@ CORS(app, supports_credentials=True, resources={r"/*": {"origins": FRONTEND_URL}
 # Database Helper
 # -----------------------
 def get_db():
-    conn = sqlite3.connect(DB, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    conn = pymysql.connect(
+        host=MYSQL_HOST,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DB,
+        cursorclass=pymysql.cursors.DictCursor
+    )
     return conn
-
-def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-    # Users table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-    # Posts table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS posts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        category TEXT CHECK(category IN ('poetry','short','novel')) NOT NULL,
-        content TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-    """)
-    # Ratings table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS ratings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        post_id INTEGER NOT NULL,
-        rating INTEGER CHECK(rating BETWEEN 1 AND 5),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, post_id),
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE
-    )
-    """)
-    # Settings table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS settings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER UNIQUE NOT NULL,
-        default_category TEXT CHECK(default_category IN ('poetry','short','novel')) DEFAULT 'poetry',
-        theme TEXT CHECK(theme IN ('light','dark')) DEFAULT 'light',
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-    """)
-    conn.commit()
-    conn.close()
 
 # -----------------------
 # JWT Helper
@@ -97,7 +53,7 @@ def token_required(f):
     return decorated
 
 # -----------------------
-# Auth Routes
+# Auth Routes (signup/login)
 # -----------------------
 @app.route("/signup", methods=["POST"])
 def signup():
@@ -113,13 +69,14 @@ def signup():
 
     try:
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO users (name, email, password) VALUES (?, ?, ?)", (name, email, hashed_password))
-        user_id = cur.lastrowid
-        cur.execute("INSERT INTO settings (user_id) VALUES (?)", (user_id,))
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO users (name, email, password) VALUES (%s, %s, %s)", 
+                        (name, email, hashed_password))
+            user_id = cur.lastrowid
+            cur.execute("INSERT INTO settings (user_id) VALUES (%s)", (user_id,))
         conn.commit()
         return jsonify({"message": "User registered successfully!"}), 201
-    except sqlite3.IntegrityError:
+    except pymysql.err.IntegrityError:
         return jsonify({"error": "Email already exists!"}), 400
     finally:
         conn.close()
@@ -134,9 +91,9 @@ def login():
         return jsonify({"error": "Email and password are required"}), 400
 
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE email=?", (email,))
-    user = cur.fetchone()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE email=%s", (email,))
+        user = cur.fetchone()
     conn.close()
 
     if user and check_password_hash(user["password"], password):
@@ -145,9 +102,8 @@ def login():
             SECRET_KEY,
             algorithm="HS256"
         )
-        user_dict = dict(user)
-        user_dict.pop("password")
-        return jsonify({"message": "Login successful", "token": token, "user": user_dict}), 200
+        user.pop("password")
+        return jsonify({"message": "Login successful", "token": token, "user": user}), 200
 
     return jsonify({"error": "Invalid credentials"}), 401
 
@@ -166,8 +122,11 @@ def create_post(user_id):
         return jsonify({"error": "All fields are required"}), 400
 
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO posts (user_id, title, category, content) VALUES (?, ?, ?, ?)", (user_id, title, category, content))
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO posts (user_id, title, category, content) VALUES (%s, %s, %s, %s)",
+            (user_id, title, category, content)
+        )
     conn.commit()
     conn.close()
     return jsonify({"message": "Post created successfully!"}), 201
@@ -175,26 +134,22 @@ def create_post(user_id):
 @app.route("/posts", methods=["GET"])
 def get_posts():
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT p.id, p.title, p.category, p.content, p.created_at, u.name as author,
-               IFNULL(ROUND(AVG(r.rating),2),0) as avg_rating,
-               COUNT(r.rating) as total_votes
-        FROM posts p
-        JOIN users u ON p.user_id = u.id
-        LEFT JOIN ratings r ON p.id = r.post_id
-        GROUP BY p.id, u.name
-        ORDER BY p.created_at DESC
-    """)
-    posts = [dict(row) for row in cur.fetchall()]
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT p.id, p.title, p.category, p.content, p.created_at, u.name as author,
+                   IFNULL(ROUND(AVG(r.rating),2),0) as avg_rating,
+                   COUNT(r.rating) as total_votes
+            FROM posts p
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN ratings r ON p.id = r.post_id
+            GROUP BY p.id, u.name
+            ORDER BY p.created_at DESC
+        """)
+        posts = cur.fetchall()
     conn.close()
     return jsonify(posts)
 
 # -----------------------
-# Init DB
+# Expose Flask app for Vercel
 # -----------------------
-init_db()
-
-# -----------------------
-# Vercel requires exposing 'app' without app.run()
-# -----------------------
+# No app.run() here; Vercel will handle running
