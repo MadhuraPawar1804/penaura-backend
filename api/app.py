@@ -167,4 +167,4 @@ def get_posts():
 # -----------------------
 # Expose app for Vercel
 # -----------------------
-app = app
+# ⚠️ Do not call app.run() on Vercel
