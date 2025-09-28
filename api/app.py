@@ -42,6 +42,63 @@ def get_db():
         raise
 
 # -----------------------
+# Table Creation
+# -----------------------
+def create_tables():
+    try:
+        conn = get_db()
+        with conn.cursor() as cur:
+            # Users table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Posts table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS posts (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    category ENUM('poetry','short','novel') NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Ratings table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ratings (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    post_id INT NOT NULL,
+                    rating INT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, post_id),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE
+                )
+            """)
+        conn.commit()
+        print("Tables created or already exist.")
+    except Exception as e:
+        print("Error creating tables:", e)
+        raise
+    finally:
+        conn.close()
+
+# Call table creation when app starts
+create_tables()
+
+# -----------------------
 # JWT Helper
 # -----------------------
 def token_required(f):
@@ -174,4 +231,4 @@ def get_posts():
 # Expose app for Vercel
 # -----------------------
 # ⚠️ Do NOT call app.run() on Vercel
-# Use "vercel.json" to configure the serverless function
+# Deploy using vercel.json configuration
