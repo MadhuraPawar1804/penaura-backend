@@ -12,7 +12,6 @@ import os
 # -----------------------
 app = Flask(__name__)
 
-# Allow your frontend URL or "*" for testing
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://penaura-frontend.vercel.app")
 SECRET_KEY = os.environ.get("SECRET_KEY", "supersecretkey")
 
@@ -21,7 +20,6 @@ MYSQL_USER = os.environ.get("MYSQL_USER")
 MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD")
 MYSQL_DB = os.environ.get("MYSQL_DB")
 
-# CORS configuration
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": FRONTEND_URL}})
 
 # -----------------------
@@ -88,15 +86,13 @@ def create_tables():
                 )
             """)
         conn.commit()
-        print("Tables created or already exist.")
+        print("Tables created successfully")
     except Exception as e:
         print("Error creating tables:", e)
         raise
     finally:
-        conn.close()
-
-# Call table creation when app starts
-create_tables()
+        if conn:
+            conn.close()
 
 # -----------------------
 # JWT Helper
@@ -114,6 +110,13 @@ def token_required(f):
             return jsonify({"error": "Invalid token!", "details": str(e)}), 401
         return f(user_id, *args, **kwargs)
     return decorated
+
+# -----------------------
+# Init DB route (runs table creation)
+# -----------------------
+@app.before_first_request
+def initialize_database():
+    create_tables()
 
 # -----------------------
 # Auth Routes
@@ -231,4 +234,4 @@ def get_posts():
 # Expose app for Vercel
 # -----------------------
 # ⚠️ Do NOT call app.run() on Vercel
-# Deploy using vercel.json configuration
+# Deploy using vercel.json
