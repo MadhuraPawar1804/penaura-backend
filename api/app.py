@@ -230,6 +230,26 @@ def get_posts():
     finally:
         conn.close()
 
+@app.route("/test-db")
+def test_db():
+    try:
+        conn = pymysql.connect(
+            host=os.environ.get("MYSQL_HOST"),
+            user=os.environ.get("MYSQL_USER"),
+            password=os.environ.get("MYSQL_PASSWORD"),
+            database=os.environ.get("MYSQL_DB"),
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            result = cur.fetchone()
+        return jsonify({"success": True, "result": result})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+    finally:
+        conn.close()
+
+
 # -----------------------
 # Expose app for Vercel
 # -----------------------
