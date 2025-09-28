@@ -11,7 +11,9 @@ import os
 # Config
 # -----------------------
 app = Flask(__name__)
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
+
+# Allow your frontend URL or "*" for testing
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://penaura-frontend.vercel.app")
 SECRET_KEY = os.environ.get("SECRET_KEY", "supersecretkey")
 
 MYSQL_HOST = os.environ.get("MYSQL_HOST")
@@ -19,6 +21,7 @@ MYSQL_USER = os.environ.get("MYSQL_USER")
 MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD")
 MYSQL_DB = os.environ.get("MYSQL_DB")
 
+# CORS configuration
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": FRONTEND_URL}})
 
 # -----------------------
@@ -72,7 +75,10 @@ def signup():
     try:
         conn = get_db()
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO users (name, email, password) VALUES (%s, %s, %s)", (name, email, hashed_password))
+            cur.execute(
+                "INSERT INTO users (name, email, password) VALUES (%s, %s, %s)",
+                (name, email, hashed_password)
+            )
             user_id = cur.lastrowid
         conn.commit()
         return jsonify({"message": "User registered successfully!"}), 201
@@ -167,4 +173,5 @@ def get_posts():
 # -----------------------
 # Expose app for Vercel
 # -----------------------
-# ⚠️ Do not call app.run() on Vercel
+# ⚠️ Do NOT call app.run() on Vercel
+# Use "vercel.json" to configure the serverless function
